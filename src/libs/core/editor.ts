@@ -1,11 +1,10 @@
 import { PenEditorOptions, PenEditorParser, PenEditorPlugin, PenEditorRenderer, PenEditorSelection } from '../typings';
 import { getTypeOffset, setOffset } from '../utils/offset';
 import { serializeState } from '../utils/selection';
-
+import morphdom from 'morphdom';
 
 export class PenEditor {
   element: HTMLElement;
-  value: string;
   renderer: PenEditorRenderer;
   plugins: PenEditorPlugin[];
   parser: PenEditorParser;
@@ -215,4 +214,12 @@ function callPlugins(editor: PenEditor, path: string[], ...args: any[]) {
     const handler = getPath(plugin, path);
     if (handler && handler(editor, ...args)) break;
   }
+}
+
+function toDOM(renderer, node) {
+  if (typeof node === 'string') return node;
+
+  const content = node.content &&
+    node.content.map(child => toDOM(renderer, child));
+  return renderer[node.type]({ content });
 }
