@@ -1,60 +1,116 @@
-import { PenEditorOptions, PenEditorParser, PenEditorPlugin, PenEditorRenderer, PenEditorSelection } from '../typings';
-import { getTypeOffset, setOffset } from '../utils/offset';
-import { serializeState } from '../utils/selection';
+import { getOffset, serializeState, setOffset } from './shared.js';
 import morphdom from 'morphdom';
+import defaultPlugin from './default-plugin.js';
+import firefoxPlugin from './firefox.js';
+import androidPlugin from './android.js';
+import { safari, firefox } from './user-agent.js';
 
-export class PenEditor {
-  element: HTMLElement;
-  renderer: PenEditorRenderer;
-  plugins: PenEditorPlugin[];
-  parser: PenEditorParser;
+function toDOM(renderer, node) {
+  if (typeof node === 'string') return node;
 
-  private _elements: Element[];
+  const content = node.content &&
+    node.content.map(child => toDOM(renderer, child));
+  return renderer[node.type]({ content });
+}
 
-  private _state: any[];
+const EVENTS = [
+  'beforeinput',
+  'compositionstart',
+  'compositionend',
+  'copy',
+  'dragstart',
+  'drop',
+  'paste',
+  'input',
+  'keydown',
+  'keypress'
+];
 
-  selection: PenEditorSelection;
+const DOCUMENT_EVENTS = [
+  'selectionchange'
+];
 
-  constructor(options: PenEditorOptions) {
-    const { element, value = '', renderer, plugins = [], parser } = options;
 
+/**
+ * @typedef {Object} StateNode
+ * @property {String} type
+ * @property {Array<StateNode|String>} content
+ */
+
+
+function changeHandlers(editor, cmd) {
+  for (const name of EVENTS) {
+    editor.element[`${cmd}EventListener`](name, editor);
+  }
+  for (const name of DOCUMENT_EVENTS) {
+    document[`${cmd}EventListener`](name, editor);
+  }
+}
+
+function getPath(obj, path) {
+  for (const key of path) {
+    obj = obj[key];
+    if (!obj) return;
+  }
+  return obj;
+}
+
+/**
+ * Call plugins until one returns true
+ */
+function callPlugins(editor, path, ...args) {
+  for (const plugin of editor.plugins) {
+    const handler = getPath(plugin, path);
+    if (handler && handler(editor, ...args)) break;
+  }
+}
+
+export default class Editor {
+  constructor({
+    element,
+    value = '',
+    renderer = [],
+    plugins = [],
+    parser
+  } = {}) {
     this._elements = [];
+    Object.assign(this, { element, renderer, parser });
+    this.plugins = [
+      firefoxPlugin,
+      androidPlugin,
+      defaultPlugin,
+      ...plugins
+    ].filter(Boolean);
+    this._state = [];
+    this.composing = false;
 
-    const el = typeof element === 'string' ? document.querySelector(element) : element;
-    if (!el) {
-      throw new Error('Element not found');
-    }
+    const getTypeOffset = type => {
+      const sel = this.element.getRootNode().getSelection();
+      const block = this.selection[type + 'Block'];
+      if (sel[type + 'Node'] === this.element) return 0;
+      if (!this.element.contains(sel[type + 'Node'])) return -1;
 
-    this.element = el as HTMLElement;
-    if (!renderer) {
-      throw new Error('Renderer is required');
-    }
-    this.renderer = renderer;
-
-    if (!parser) {
-      throw new Error('Parser is required');
-    }
-    this.parser = parser;
-
-    this.plugins = plugins;
-
-    const _element = this.element;
+      return getOffset(
+        this.element.children[block],
+        sel[type + 'Node'],
+        sel[type + 'Offset']
+      );
+    };
     this.selection = {
       anchorBlock: 0,
       focusBlock: 0,
       get anchorOffset() {
-        return getTypeOffset('anchor', _element);
+        return getTypeOffset('anchor');
       },
       get focusOffset() {
-        return getTypeOffset('focus', _element);
+        return getTypeOffset('focus');
       }
     };
 
-    this.element.contentEditable = 'true';
+    this.element.contentEditable = true;
     changeHandlers(this, 'add');
     this.value = value;
   }
-
 
   /**
    * @private
@@ -85,10 +141,10 @@ export class PenEditor {
     setOffset(this, caret);
   }
 
-   /**
+  /**
    * @param {StateNode[]} state
    */
-   set state(state) {
+  set state(state) {
     if (state === this.state) return;
 
     const prevState = this.state;
@@ -161,65 +217,5 @@ export class PenEditor {
   destroy() {
     changeHandlers(this, 'remove');
   }
-}
 
-// ================================ Change Handlers ================================
-const EVENTS = [
-  'beforeinput',
-  'compositionstart',
-  'compositionend',
-  'copy',
-  'dragstart',
-  'drop',
-  'paste',
-  'input',
-  'keydown',
-  'keypress'
-];
-
-const DOCUMENT_EVENTS = [
-  'selectionchange'
-];
-
-
-/**
- * @typedef {Object} StateNode
- * @property {String} type
- * @property {Array<StateNode|String>} content
- */
-function changeHandlers(editor: PenEditor, cmd: 'add' | 'remove') {
-  for (const name of EVENTS) {
-    // TODO: Fix type
-    editor.element[`${cmd}EventListener`](name, editor);
-  }
-  for (const name of DOCUMENT_EVENTS) {
-    // TODO: Fix type
-    document[`${cmd}EventListener`](name, editor);
-  }
-}
-// TODO: Fix type
-function getPath(obj: any, path: string[]) {
-  for (const key of path) {
-    obj = obj[key];
-    if (!obj) return;
-  }
-  return obj;
-}
-
-/**
- * Call plugins until one returns true
- */
-function callPlugins(editor: PenEditor, path: string[], ...args: any[]) {
-  for (const plugin of editor.plugins) {
-    const handler = getPath(plugin, path);
-    if (handler && handler(editor, ...args)) break;
-  }
-}
-
-function toDOM(renderer, node) {
-  if (typeof node === 'string') return node;
-
-  const content = node.content &&
-    node.content.map(child => toDOM(renderer, child));
-  return renderer[node.type]({ content });
 }
