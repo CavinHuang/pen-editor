@@ -1,7 +1,15 @@
-import { serializeState, setOffset } from '../core/shared.js';
-import shortcut from '../core/shortcut.js';
+import { serializeState, setOffset } from '../core/shared';
+import shortcut from '../core/shortcut';
+import type { StateNode, EditorPlugin } from '../typings/editor';
+import Editor from '../typings/editor';
 
-function diff(str1, str2) {
+interface DiffResult {
+  added: string;
+  removed: string;
+  position: number;
+}
+
+function diff(str1: string, str2: string): DiffResult {
   if (str1 === str2) {
     return { added: '', removed: '', position: -1 };
   }
@@ -28,17 +36,17 @@ function diff(str1, str2) {
   return { added, removed, position };
 }
 
-export default function historyPlugin() {
-  const hist = [];
+export default function historyPlugin(): EditorPlugin {
+  const hist: StateNode[][] = [];
   let historyPosition = 0;
 
-  function addToHistory(state) {
+  function addToHistory(state: StateNode[]): void {
     hist.splice(historyPosition);
     hist.push(state);
     historyPosition = hist.length;
   }
 
-  function undo(editor) {
+  function undo(editor: Editor): void {
     if (historyPosition <= 1) return;
 
     historyPosition--;
@@ -72,7 +80,7 @@ export default function historyPlugin() {
     });
   }
 
-  function redo(editor) {
+  function redo(editor: Editor): void {
     if (hist.length === historyPosition) return;
 
     const prevState = editor.state;
@@ -98,18 +106,20 @@ export default function historyPlugin() {
   }
 
   let supress = false;
-  let cb;
+  let cb: number;
   return {
-    afterchange(editor) {
+    afterchange(editor: Editor): void {
       clearTimeout(cb);
       if (!supress) {
         cb = setTimeout(() => {
           addToHistory(editor.state);
-        }, 150);
+        }, 150) as unknown as number;
       }
     },
     handlers: {
-      beforeinput(editor, event) {
+      beforeinput(editor: Editor, event: Event): boolean | void {
+        if (!(event instanceof InputEvent)) return false;
+
         if (event.inputType === 'historyUndo') undo(editor);
         else if (event.inputType === 'historyRedo') redo(editor);
         else return false;
@@ -117,7 +127,9 @@ export default function historyPlugin() {
         event.preventDefault();
         return true;
       },
-      keydown(editor, event) {
+      keydown(editor: Editor, event: Event): boolean | void {
+        if (!(event instanceof KeyboardEvent)) return false;
+
         if (shortcut('Mod+Z', event)) {
           undo(editor);
         } else if (shortcut('Mod+Y', event) || shortcut('Mod+Shift+Z', event)) {

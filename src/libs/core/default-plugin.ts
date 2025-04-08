@@ -6,22 +6,24 @@ import {
   serializeState,
   orderedSelection,
   replaceSelection
-} from './shared.js';
+} from './shared';
+import type { EditorPlugin, StateNode, CaretPosition } from '../typings/editor';
+import Editor from '../typings/editor';
 
-function onCompositionStart(editor) {
+function onCompositionStart(editor: Editor): void {
   editor.composing = true;
 }
 
-function onCompositionEnd(editor, event) {
+function onCompositionEnd(editor: Editor, event: Event): boolean {
   editor.composing = false;
   return onInput(editor, event);
 }
 
-function onInput(editor, event) {
-  if (editor.composing) return;
+function onInput(editor: Editor, event: Event): boolean {
+  if (editor.composing) return true;
 
   const { firstBlockIndex, lastBlockIndex } = getChangeIndexes(editor, event);
-  const firstBlock = editor.element.children[firstBlockIndex];
+  const firstBlock = editor.element.children[firstBlockIndex] as HTMLElement;
 
   const caretStart = event.target === editor.element ?
     editor.selection.anchorOffset :
@@ -36,17 +38,20 @@ function onInput(editor, event) {
   return true;
 }
 
-function onDragstart(editor, event) {
+function onDragstart(editor: Editor, event: Event): boolean | void {
+  if (!(event instanceof DragEvent)) return false;
   event.preventDefault();
+  return true;
 }
 
-function onBeforeDelete(editor, event, type) {
+function onBeforeDelete(editor: Editor, event: InputEvent, type: string): boolean {
   const {
-    firstBlock,
-    lastBlock,
-    firstOffset
+    startBlock: firstBlock,
+    endBlock: lastBlock,
+    startOffset: firstOffset
   } = orderedSelection(editor.selection);
-  const { isCollapsed } = editor.element.getRootNode().getSelection();
+  const selection = (editor.element.getRootNode() as Document).getSelection();
+  const isCollapsed = selection ? selection.isCollapsed : true;
 
   // Selection
   if (!isCollapsed) {
@@ -92,8 +97,10 @@ function onBeforeDelete(editor, event, type) {
   return true;
 }
 
-function onBeforeInput(editor, event) {
-  const types = {
+function onBeforeInput(editor: Editor, event: Event): boolean | void {
+  if (!(event instanceof InputEvent)) return false;
+
+  const types: Record<string, string> = {
     deleteContentBackward: 'character',
     deleteContentForward: 'character',
     deleteWordBackward: 'word',
@@ -105,65 +112,77 @@ function onBeforeInput(editor, event) {
   };
 
   const type = types[event.inputType];
-  if (!type) return;
+  if (!type) return false;
 
   return onBeforeDelete(editor, event, type);
 }
 
-function onCopy(editor, event) {
-  const { isCollapsed } = editor.element.getRootNode().getSelection();
-  if (isCollapsed) return;
+function onCopy(editor: Editor, event: Event): boolean | void {
+  if (!(event instanceof ClipboardEvent)) return false;
+
+  const selection = (editor.element.getRootNode() as Document).getSelection();
+  const isCollapsed = selection ? selection.isCollapsed : true;
+  if (isCollapsed) return false;
 
   const {
-    firstBlock,
-    lastBlock,
-    firstOffset,
-    lastOffset
+    startBlock: firstBlock,
+    endBlock: lastBlock,
+    startOffset: firstOffset,
+    endOffset: lastOffset
   } = orderedSelection(editor.selection);
 
   const blocks = editor.state.slice(firstBlock, lastBlock + 1)
-    .map(block => serializeState(block.content));
+    .map((block: StateNode) => serializeState(block.content));
   const lastBlockLength = blocks[blocks.length - 1].length;
-  const selection = blocks.join('\n').slice(
+  const selectedText = blocks.join('\n').slice(
     firstOffset,
     lastOffset - lastBlockLength || Infinity
   );
 
   event.preventDefault();
-  event.clipboardData.setData('text/plain', selection);
+  event.clipboardData?.setData('text/plain', selectedText);
 
   return true;
 }
 
-function onPaste(editor, event) {
+function onPaste(editor: Editor, event: Event): boolean | void {
+  if (!(event instanceof ClipboardEvent)) return false;
+
   event.preventDefault();
 
-  replaceSelection(editor, event.clipboardData.getData('text'));
+  replaceSelection(editor, event.clipboardData?.getData('text') || '');
 
   return true;
 }
 
-function onSelectionChange(editor) {
-  const sel = editor.element.getRootNode().getSelection();
+function onSelectionChange(editor: Editor): void {
+  const selection = (editor.element.getRootNode() as Document).getSelection();
 
   // Focus outside editor
-  if (!editor.element.contains(sel.anchorNode)) return;
+  if (!selection || !editor.element.contains(selection.anchorNode)) return;
 
-  editor.selection.anchorBlock =
-    findBlockIndex(editor.element, sel.anchorNode, sel.anchorOffset);
-  editor.selection.focusBlock =
-    findBlockIndex(editor.element, sel.focusNode, sel.focusOffset);
+  // 确保 anchorNode 和 focusNode 不为 null
+  if (selection.anchorNode) {
+    editor.selection.anchorBlock =
+      findBlockIndex(editor.element, selection.anchorNode, selection.anchorOffset);
+  }
+
+  if (selection.focusNode) {
+    editor.selection.focusBlock =
+      findBlockIndex(editor.element, selection.focusNode, selection.focusOffset);
+  }
 }
 
 /**
  * Correct caret position if the line is now in a prior block
  */
-function updateCaret(editor, state, [block, offset]) {
+function updateCaret(editor: Editor, state: StateNode[], caret: [number, number]): [number, number] | undefined {
+  const [block, offset] = caret;
   let lineIndex = editor.state.slice(0, block + 1)
-    .reduce((acc, val) => acc + val.length, 0);
+    .reduce((acc: number, val: StateNode) => acc + (val.length || 0), 0);
   const newBlock = state.findIndex(block => {
-    if (lineIndex <= block.length) return true;
-    lineIndex -= block.length;
+    if (lineIndex <= (block.length || 0)) return true;
+    lineIndex -= (block.length || 0);
     return false;
   });
   if (newBlock === -1) return;
@@ -175,7 +194,7 @@ function updateCaret(editor, state, [block, offset]) {
   return [newBlock, newOffset];
 }
 
-function onBeforeUpdate(editor, state, caret) {
+function onBeforeUpdate(editor: Editor, state: StateNode[], caret: CaretPosition): { state: StateNode[]; caret: CaretPosition } | undefined {
   if (!editor.state.length) return;
 
   const anchor = updateCaret(editor, state, caret.anchor);
@@ -191,7 +210,7 @@ function onBeforeUpdate(editor, state, caret) {
   };
 }
 
-export default {
+const defaultPlugin: EditorPlugin = {
   handlers: {
     input: onInput,
     compositionstart: onCompositionStart,
@@ -204,3 +223,5 @@ export default {
   },
   beforeupdate: onBeforeUpdate
 };
+
+export default defaultPlugin;

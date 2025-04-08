@@ -9,12 +9,25 @@ import {
   file,
   image,
   tag
-} from './basic.js';
+} from './basic';
+import type { StateNode } from '../../typings/editor';
 
-import link from './link.js';
-import selfcloseTag from './tag.js';
+import link from './link';
+import selfcloseTag from './tag';
 
-function text(state) {
+interface InlineParserState {
+  index: number;
+  string: string;
+  tokens: Array<string | StateNode>;
+  parse: (start: number, end: number) => Array<string | StateNode>;
+}
+
+type InlineParser = (state: InlineParserState) => boolean;
+
+/**
+ * 处理纯文本
+ */
+function text(state: InlineParserState): boolean {
   if (typeof state.tokens[state.tokens.length - 1] !== 'string') {
     state.tokens.push('');
   }
@@ -25,7 +38,7 @@ function text(state) {
   return true;
 }
 
-const parsers = [
+const parsers: InlineParser[] = [
   selfcloseTag,
   strong,
   em,
@@ -38,12 +51,16 @@ const parsers = [
   image,
   tag,
   link,
-
   text
 ];
 
-export default function parseInline(string) {
-  const state = {
+/**
+ * 解析内联元素
+ * @param string 要解析的文本
+ * @returns 解析后的标记数组
+ */
+export default function parseInline(string: string): Array<string | StateNode> {
+  const state: InlineParserState = {
     index: 0,
     string,
     tokens: [],

@@ -3,7 +3,9 @@ import {
   replaceSelection,
   getNewState,
   serializeState
-} from '../core/shared.js';
+} from '../core/shared';
+import type { EditorPlugin, StateNode } from '../typings/editor';
+import Editor from '../typings/editor';
 
 const INDENTABLE_BLOCKS = [
   'todo_item',
@@ -13,16 +15,26 @@ const INDENTABLE_BLOCKS = [
 
 const INDENTATION = /^\t| {0,4}/;
 
-function shouldIndent(blocks) {
+/**
+ * 判断块是否可缩进
+ * @param blocks 需要判断的块列表
+ * @returns 是否包含可缩进块
+ */
+function shouldIndent(blocks: StateNode[]): boolean {
   return blocks.some(block => INDENTABLE_BLOCKS.includes(block.type));
 }
 
-export default function tabPlugin() {
+/**
+ * Tab 缩进插件
+ */
+export default function tabPlugin(): EditorPlugin {
   return {
     handlers: {
-      keydown(editor, event) {
+      keydown(editor: Editor, event: Event): boolean | void {
+        if (!(event instanceof KeyboardEvent)) return false;
+
         // Tab
-        if (event.which !== 9) return;
+        if (event.which !== 9) return false;
 
         if (
           event.metaKey ||
@@ -32,8 +44,8 @@ export default function tabPlugin() {
         event.preventDefault();
 
         const {
-          firstBlock,
-          lastBlock
+          startBlock: firstBlock,
+          endBlock: lastBlock
         } = orderedSelection(editor.selection);
 
         const selectedBlocks = editor.state.slice(firstBlock, lastBlock + 1);

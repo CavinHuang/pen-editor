@@ -1,6 +1,25 @@
+import type { StateNode } from '../../typings/editor';
+
+interface InlineParserState {
+  index: number;
+  string: string;
+  tokens: Array<string | StateNode>;
+  parse: (start: number, end: number) => Array<string | StateNode>;
+}
+
+type InlineParser = (state: InlineParserState) => boolean;
+
+interface Chars {
+  open: string;
+  close: string;
+}
+
 const WHITESPACE = /\s/;
 
-function findCloseIndex(state, match) {
+/**
+ * 查找匹配的闭合标记
+ */
+function findCloseIndex(state: InlineParserState, match: string): number {
   for (let n = state.index + match.length; n < state.string.length; n++) {
     const char = state.string.substring(n, n + match.length);
     if (char === match && !WHITESPACE.test(state.string[n - 1])) {
@@ -11,23 +30,38 @@ function findCloseIndex(state, match) {
   return -1;
 }
 
-function getChars(chars) {
+/**
+ * 获取字符对象
+ */
+function getChars(chars: string | Chars): Chars {
   if (typeof chars === 'string') {
     return { open: chars, close: chars };
   }
   return chars;
 }
 
-function matchChars(CHARS, state, index) {
+/**
+ * 匹配字符
+ */
+function matchChars(CHARS: Array<string | Chars>, state: InlineParserState, index: number): Chars | undefined {
   for (const chars of CHARS) {
     const chars2 = getChars(chars);
     const slice = state.string.substring(index, index + chars2.open.length);
     if (slice === chars2.open) return chars2;
   }
+  return undefined;
 }
 
-function create(CHARS, type, richContent = true, contentRequired = false) {
-  return function (state) {
+/**
+ * 创建内联解析器
+ */
+function create(
+  CHARS: Array<string | Chars>,
+  type: string,
+  richContent: boolean = true,
+  contentRequired: boolean = false
+): InlineParser {
+  return function(state: InlineParserState): boolean {
     const char = matchChars(CHARS, state, state.index);
     if (!char) return false;
 

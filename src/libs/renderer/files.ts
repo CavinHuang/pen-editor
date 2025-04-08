@@ -1,13 +1,27 @@
 /**
- * In-memory map of files
+ * 文件URL的内存映射
  */
 
-const MAP = {};
+interface FileMap {
+  [id: string]: string;
+}
 
-export function get(id) {
+const MAP: FileMap = {};
+
+/**
+ * 获取文件URL
+ * @param id 文件ID
+ * @returns 文件URL或undefined
+ */
+export function get(id: string): string | undefined {
   return MAP[id];
 }
 
-export function set(id, url) {
+/**
+ * 设置文件URL
+ * @param id 文件ID
+ * @param url 文件URL
+ */
+export function set(id: string, url: string): void {
   MAP[id] = url;
 }

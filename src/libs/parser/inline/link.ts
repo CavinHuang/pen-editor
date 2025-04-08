@@ -1,9 +1,21 @@
+import type { StateNode } from '../../typings/editor';
+
+interface InlineParserState {
+  index: number;
+  string: string;
+  tokens: Array<string | StateNode>;
+  parse: (start: number, end: number) => Array<string | StateNode>;
+}
+
 const OPEN_BRACKET = '[';
 const CLOSE_BRACKET = ']';
 const OPEN_PAR = '(';
 const CLOSE_PAR = ')';
 
-function findCloseIndex(state, start, match) {
+/**
+ * 查找匹配的闭合字符
+ */
+function findCloseIndex(state: InlineParserState, start: number, match: string): number {
   for (let n = start; n < state.string.length; n++) {
     if (state.string[n] === match) return n;
   }
@@ -11,7 +23,10 @@ function findCloseIndex(state, start, match) {
   return -1;
 }
 
-export default function link(state) {
+/**
+ * 解析链接 [text](url)
+ */
+export default function link(state: InlineParserState): boolean {
   if (state.string[state.index] !== OPEN_BRACKET) return false;
 
   const closeBracketIndex = findCloseIndex(state, state.index, CLOSE_BRACKET);

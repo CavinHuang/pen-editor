@@ -1,11 +1,12 @@
-import { getOffset, serializeState, setOffset } from './shared.js';
+import { getOffset, serializeState, setOffset } from './shared';
 import morphdom from 'morphdom';
-import defaultPlugin from './default-plugin.js';
-import firefoxPlugin from './firefox.js';
-import androidPlugin from './android.js';
-import { safari, firefox } from './user-agent.js';
+import defaultPlugin from './default-plugin';
+import firefoxPlugin from './firefox';
+import androidPlugin from './android';
+import { safari, firefox } from './user-agent';
+import type { StateNode, EditorPlugin, CaretPosition, Selection, Renderer, Parser, EditorConstructorOptions } from '../typings/editor';
 
-function toDOM(renderer, node) {
+function toDOM(renderer: Renderer, node: StateNode | string): string | HTMLElement {
   if (typeof node === 'string') return node;
 
   const content = node.content &&
@@ -24,21 +25,13 @@ const EVENTS = [
   'input',
   'keydown',
   'keypress'
-];
+] as const;
 
 const DOCUMENT_EVENTS = [
   'selectionchange'
-];
+] as const;
 
-
-/**
- * @typedef {Object} StateNode
- * @property {String} type
- * @property {Array<StateNode|String>} content
- */
-
-
-function changeHandlers(editor, cmd) {
+function changeHandlers<T extends { element: HTMLElement } & EventListenerObject>(editor: T, cmd: 'add' | 'remove'): void {
   for (const name of EVENTS) {
     editor.element[`${cmd}EventListener`](name, editor);
   }
@@ -47,7 +40,7 @@ function changeHandlers(editor, cmd) {
   }
 }
 
-function getPath(obj, path) {
+function getPath(obj: any, path: string[]): any {
   for (const key of path) {
     obj = obj[key];
     if (!obj) return;
@@ -58,44 +51,59 @@ function getPath(obj, path) {
 /**
  * Call plugins until one returns true
  */
-function callPlugins(editor, path, ...args) {
+function callPlugins(editor: Editor, path: string[], ...args: any[]): void {
   for (const plugin of editor.plugins) {
     const handler = getPath(plugin, path);
     if (handler && handler(editor, ...args)) break;
   }
 }
 
-export default class Editor {
+export default class Editor implements EventListenerObject {
+  element!: HTMLElement;
+  renderer!: Renderer;
+  parser!: Parser;
+  plugins!: EditorPlugin[];
+  selection!: Selection;
+  composing: boolean = false;
+  _state: StateNode[] = [];
+  _elements: HTMLElement[] = [];
+
   constructor({
     element,
     value = '',
-    renderer = [],
+    renderer = {} as Renderer,
     plugins = [],
     parser
-  } = {}) {
-    this._elements = [];
-    Object.assign(this, { element, renderer, parser });
+  }: EditorConstructorOptions = {} as EditorConstructorOptions) {
+    if (!element || !parser) {
+      throw new Error('Editor requires element and parser options');
+    }
+
+    this.element = element;
+    this.renderer = renderer;
+    this.parser = parser;
     this.plugins = [
       firefoxPlugin,
       androidPlugin,
       defaultPlugin,
       ...plugins
-    ].filter(Boolean);
-    this._state = [];
-    this.composing = false;
+    ].filter((plugin): plugin is EditorPlugin => Boolean(plugin));
 
-    const getTypeOffset = type => {
-      const sel = this.element.getRootNode().getSelection();
-      const block = this.selection[type + 'Block'];
-      if (sel[type + 'Node'] === this.element) return 0;
-      if (!this.element.contains(sel[type + 'Node'])) return -1;
+    const getTypeOffset = (type: 'anchor' | 'focus'): number => {
+      const root = this.element.getRootNode() as Document;
+      const sel = root.getSelection();
+      if (!sel) return -1;
+      const block = this.selection[`${type}Block`];
+      if (sel[`${type}Node`] === this.element) return 0;
+      if (!this.element.contains(sel[`${type}Node`])) return -1;
 
       return getOffset(
-        this.element.children[block],
-        sel[type + 'Node'],
-        sel[type + 'Offset']
+        this.element.children[block] as HTMLElement,
+        sel[`${type}Node`] as Node,
+        sel[`${type}Offset`]
       );
     };
+
     this.selection = {
       anchorBlock: 0,
       focusBlock: 0,
@@ -107,31 +115,24 @@ export default class Editor {
       }
     };
 
-    this.element.contentEditable = true;
+    this.element.contentEditable = 'true';
     changeHandlers(this, 'add');
     this.value = value;
   }
 
-  /**
-   * @private
-   */
-  handleEvent(event) {
+  handleEvent(event: Event): void {
     callPlugins(this, ['handlers', event.type], event);
   }
 
-  /**
-   * @param {StateNode[]} state
-   * @param {[Number, Number]|{ anchor: [Number, Number], focus: [Number, Number] }} caret
-   */
-  update(state, caret = [0, 0]) {
-    if (!caret.anchor) {
-      caret = { focus: caret, anchor: caret.slice() };
+  update(state: StateNode[], caret: [number, number] | CaretPosition = [0, 0]): void {
+    if (!('anchor' in caret)) {
+      caret = { focus: caret, anchor: caret.slice() } as CaretPosition;
     }
 
     for (const plugin of this.plugins) {
       const handler = plugin.beforeupdate;
       if (!handler) continue;
-      const ret = handler(this, state, caret);
+      const ret = handler(this, state, caret as CaretPosition);
       if (!ret) continue;
       state = ret.state;
       caret = ret.caret;
@@ -141,10 +142,7 @@ export default class Editor {
     setOffset(this, caret);
   }
 
-  /**
-   * @param {StateNode[]} state
-   */
-  set state(state) {
+  set state(state: StateNode[]) {
     if (state === this.state) return;
 
     const prevState = this.state;
@@ -162,6 +160,7 @@ export default class Editor {
         this.element.insertBefore(el, current);
       } else {
         const el = toDOM(this.renderer, node);
+        if (typeof el === 'string') return;
 
         // Improves caret behavior when contenteditable="false"
         // is the last child or when empty
@@ -169,7 +168,7 @@ export default class Editor {
           !el.childNodes.length ||
           (safari || firefox) &&
           el.lastChild &&
-          el.lastChild.contentEditable === 'false'
+          (el.lastChild as HTMLElement).contentEditable === 'false'
         ) {
           el.append(document.createElement('br'));
         }
@@ -185,37 +184,27 @@ export default class Editor {
 
     // Remove leftover elements
     while (this.element.childElementCount > state.length) {
-      this.element.lastElementChild.remove();
+      this.element.lastElementChild?.remove();
     }
 
-    this._elements = Array.from(this.element.children);
+    this._elements = Array.from(this.element.children) as HTMLElement[];
 
     callPlugins(this, ['afterchange']);
   }
 
-  /**
-   * @returns {StateNode[]}
-   */
-  get state() {
+  get state(): StateNode[] {
     return this._state;
   }
 
-  /**
-   * @param {String} value
-   */
-  set value(value) {
+  set value(value: string) {
     this.update(Array.from(this.parser(value)));
   }
 
-  /**
-   * @returns {String}
-   */
-  get value() {
+  get value(): string {
     return serializeState(this.state, true);
   }
 
-  destroy() {
+  destroy(): void {
     changeHandlers(this, 'remove');
   }
-
 }

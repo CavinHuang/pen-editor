@@ -1,7 +1,19 @@
+import type { StateNode } from '../../typings/editor';
+
+interface InlineParserState {
+  index: number;
+  string: string;
+  tokens: Array<string | StateNode>;
+  parse: (start: number, end: number) => Array<string | StateNode>;
+}
+
 const WHITESPACE = /\s/;
 const CHAR = '#';
 
-function findEnd(state) {
+/**
+ * 查找标签结束位置
+ */
+function findEnd(state: InlineParserState): number {
   for (let n = state.index + 1; n < state.string.length; n++) {
     const char = state.string[n];
     if (char === CHAR || WHITESPACE.test(char)) return n;
@@ -10,7 +22,10 @@ function findEnd(state) {
   return state.string.length;
 }
 
-function isSelfClosing(state, start) {
+/**
+ * 判断标签是否自闭合
+ */
+function isSelfClosing(state: InlineParserState, start: number): boolean {
   for (let n = start; n < state.string.length; n++) {
     const char = state.string[n];
     if (char === CHAR) {
@@ -26,9 +41,9 @@ function isSelfClosing(state, start) {
 }
 
 /**
- * Self-closing tag matcher
+ * 自闭合标签解析器
  */
-export default function tag(state) {
+export default function tag(state: InlineParserState): boolean {
   if (state.string[state.index] !== CHAR) return false;
 
   const prevChar = state.string[state.index - 1];
